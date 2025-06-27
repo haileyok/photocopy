@@ -30,8 +30,10 @@ type Photocopy struct {
 }
 
 type Inserters struct {
-	followsInserter *clickhouse_inserter.Inserter
-	plcInserter     *clickhouse_inserter.Inserter
+	followsInserter      *clickhouse_inserter.Inserter
+	interactionsInserter *clickhouse_inserter.Inserter
+	postsInserter        *clickhouse_inserter.Inserter
+	plcInserter          *clickhouse_inserter.Inserter
 }
 
 type Args struct {
@@ -76,17 +78,43 @@ func New(ctx context.Context, args *Args) (*Photocopy, error) {
 	fi, err := clickhouse_inserter.New(ctx, &clickhouse_inserter.Args{
 		PrometheusCounterPrefix: "photocopy_follows",
 		Histogram:               insertionsHist,
+		BatchSize:               1000,
+		Logger:                  p.logger,
+		Conn:                    conn,
+		Query:                   "INSERT INTO follow (uri, did, rkey, created_at, indexed_at, subject)",
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	pi, err := clickhouse_inserter.New(ctx, &clickhouse_inserter.Args{
+		PrometheusCounterPrefix: "photocopy_posts",
+		Histogram:               insertionsHist,
 		BatchSize:               100,
 		Logger:                  p.logger,
 		Conn:                    conn,
-		Query:                   "",
+		Query:                   "INSERT INTO post (uri, did, rkey, created_at, indexed_at, root_uri, root_did, parent_uri, parent_did, quote_uri, quote_did)",
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	ii, err := clickhouse_inserter.New(ctx, &clickhouse_inserter.Args{
+		PrometheusCounterPrefix: "photocopy_interactions",
+		Histogram:               insertionsHist,
+		BatchSize:               1000,
+		Logger:                  p.logger,
+		Conn:                    conn,
+		Query:                   "INSERT INTO interaction (uri, did, rkey, kind, created_at, indexed_at, subject_uri, subject_did)",
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	is := &Inserters{
-		followsInserter: fi,
+		followsInserter:      fi,
+		postsInserter:        pi,
+		interactionsInserter: ii,
 	}
 
 	p.inserters = is
