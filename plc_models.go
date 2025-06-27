@@ -138,20 +138,28 @@ func (e *PLCEntry) prepareForClickhouse() (*ClickhousePLCEntry, error) {
 		che.PlcOpType = pop.Type
 		che.PlcOpAlsoKnownAs = pop.AlsoKnownAs
 		che.PlcOpRotationKeys = pop.RotationKeys
-		if e.Operation.PLCOperation.Services != nil {
-			b, err := json.Marshal(e.Operation.PLCOperation.Services)
-			if err != nil {
-				return nil, fmt.Errorf("error marshaling services: %w", err)
-			}
-			che.PlcOpServices = string(b)
+		if e.Operation.PLCOperation.Services == nil {
+			ps := map[string]PLCService{}
+			e.Operation.PLCOperation.Services = ps
 		}
-		if e.Operation.PLCOperation.VerificationMethods != nil {
-			b, err := json.Marshal(e.Operation.PLCOperation.VerificationMethods)
-			if err != nil {
-				return nil, fmt.Errorf("error marshaling verification methods: %w", err)
-			}
-			che.PlcOpVerificationMethods = string(b)
+
+		b, err := json.Marshal(e.Operation.PLCOperation.Services)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling services: %w", err)
 		}
+		che.PlcOpServices = string(b)
+
+		if e.Operation.PLCOperation.VerificationMethods == nil {
+			vm := map[string]string{}
+			e.Operation.PLCOperation.VerificationMethods = vm
+		}
+
+		b, err = json.Marshal(e.Operation.PLCOperation.VerificationMethods)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling verification methods: %w", err)
+		}
+		che.PlcOpVerificationMethods = string(b)
+
 		return che, nil
 	} else if e.Operation.PLCTombstone != nil {
 		che.PlcTombSig = e.Operation.PLCTombstone.Sig
