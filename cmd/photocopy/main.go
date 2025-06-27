@@ -127,7 +127,7 @@ var run = func(cmd *cli.Context) error {
 	}()
 
 	if err := p.Run(ctx); err != nil {
-		return err
+		panic(err)
 	}
 
 	return nil

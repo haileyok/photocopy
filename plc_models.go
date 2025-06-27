@@ -167,6 +167,7 @@ func (e *PLCEntry) prepareForClickhouse() (*ClickhousePLCEntry, error) {
 		che.LegacyOpHandle = lop.Handle
 		che.LegacyOpSigningKey = lop.SigningKey
 		che.LegacyOpRecoveryKey = lop.RecoveryKey
+		return che, nil
 	}
 
 	return nil, fmt.Errorf("no valid plc operation type")
