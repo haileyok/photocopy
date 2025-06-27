@@ -128,7 +128,7 @@ func New(ctx context.Context, args *Args) (*Photocopy, error) {
 		Query: `INSERT INTO plc (
 			did, cid, nullified, created_at, plc_op_sig, plc_op_prev, plc_op_type,
 			plc_op_services, plc_op_also_known_as, plc_op_rotation_keys,
-			plc_op_verification_methods, plc_tomb_sig, plc_tomb_prev, plc_tomb_type,
+			 plc_tomb_sig, plc_tomb_prev, plc_tomb_type,
 			legacy_op_sig, legacy_op_prev, legacy_op_type, legacy_op_handle,
 			legacy_op_service, legacy_op_signing_key, legacy_op_recovery_key
 		)`,

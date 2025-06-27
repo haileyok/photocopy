@@ -73,7 +73,7 @@ func (s *PLCScraper) Run(ctx context.Context) error {
 			ustr += "&after=" + s.cursor
 			t, _ := time.Parse(time.RFC3339Nano, s.cursor)
 			if time.Since(t) > 1*time.Hour {
-				setTickerDuration(600 * time.Millisecond)
+				setTickerDuration(800 * time.Millisecond)
 			} else {
 				setTickerDuration(3 * time.Second)
 			}
