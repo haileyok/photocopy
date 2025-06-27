@@ -124,6 +124,7 @@ var run = func(cmd *cli.Context) error {
 		sig := <-exitSignals
 
 		l.Info("received os exit signal", "signal", sig)
+		cancel()
 	}()
 
 	if err := p.Run(ctx); err != nil {

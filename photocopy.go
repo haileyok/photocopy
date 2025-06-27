@@ -225,6 +225,54 @@ func (p *Photocopy) Run(baseCtx context.Context) error {
 			}()
 		}
 
+		if p.inserters.interactionsInserter != nil {
+			p.wg.Add(1)
+			go func() {
+				defer p.wg.Done()
+				if err := p.inserters.interactionsInserter.Close(ctx); err != nil {
+					p.logger.Error("failed to close interactions inserter", "error", err)
+					return
+				}
+				p.logger.Info("interactions inserter closed")
+			}()
+		}
+
+		if p.inserters.postsInserter != nil {
+			p.wg.Add(1)
+			go func() {
+				defer p.wg.Done()
+				if err := p.inserters.postsInserter.Close(ctx); err != nil {
+					p.logger.Error("failed to close posts inserter", "error", err)
+					return
+				}
+				p.logger.Info("posts inserter closed")
+			}()
+		}
+
+		if p.inserters.recordsInserter != nil {
+			p.wg.Add(1)
+			go func() {
+				defer p.wg.Done()
+				if err := p.inserters.recordsInserter.Close(ctx); err != nil {
+					p.logger.Error("failed to close records inserter", "error", err)
+					return
+				}
+				p.logger.Info("records inserter closed")
+			}()
+		}
+
+		if p.inserters.deletesInserter != nil {
+			p.wg.Add(1)
+			go func() {
+				defer p.wg.Done()
+				if err := p.inserters.deletesInserter.Close(ctx); err != nil {
+					p.logger.Error("failed to close deletes inserter", "error", err)
+					return
+				}
+				p.logger.Info("deletes inserter closed")
+			}()
+		}
+
 		if p.inserters.plcInserter != nil {
 			p.wg.Add(1)
 			go func() {
