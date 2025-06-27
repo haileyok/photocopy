@@ -97,7 +97,7 @@ func New(ctx context.Context, args *Args) (*Photocopy, error) {
 		BatchSize:               100,
 		Logger:                  args.Logger,
 		Conn:                    conn,
-		Query: `INSERT INTO your_table_name (
+		Query: `INSERT INTO plc (
 			did, cid, nullified, created_at, plc_op_sig, plc_op_prev, plc_op_type,
 			plc_op_services, plc_op_also_known_as, plc_op_rotation_keys,
 			plc_op_verification_methods, plc_tomb_sig, plc_tomb_prev, plc_tomb_type,
