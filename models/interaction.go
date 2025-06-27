@@ -3,7 +3,7 @@ package models
 import "time"
 
 type Interaction struct {
-	Uri        string    `ch:"like"`
+	Uri        string    `ch:"uri"`
 	Did        string    `ch:"did"`
 	Rkey       string    `ch:"rkey"`
 	Kind       string    `ch:"kind"`
