@@ -13,11 +13,14 @@ import (
 	"github.com/haileyok/photocopy/models"
 )
 
-func (p *Photocopy) handleCreate(ctx context.Context, recb []byte, indexedAt, rev, did, collection, rkey, cid string) error {
-
+func (p *Photocopy) handleCreate(ctx context.Context, recb []byte, indexedAt, rev, did, collection, rkey, cid, seq string) error {
 	iat, err := dateparse.ParseAny(indexedAt)
 	if err != nil {
 		return err
+	}
+
+	if err := p.handleCreateRecord(ctx, did, rkey, collection, cid, recb, seq); err != nil {
+		p.logger.Error("error creating record", "error", err)
 	}
 
 	switch collection {
@@ -30,6 +33,32 @@ func (p *Photocopy) handleCreate(ctx context.Context, recb []byte, indexedAt, re
 	default:
 		return nil
 	}
+}
+
+func (p *Photocopy) handleCreateRecord(ctx context.Context, did, rkey, collection, cid string, raw []byte, seq string) error {
+	var cat time.Time
+	prkey, err := syntax.ParseTID(rkey)
+	if err == nil {
+		cat = prkey.Time()
+	} else {
+		cat = time.Now()
+	}
+
+	rec := models.Record{
+		Did:        did,
+		Rkey:       rkey,
+		Collection: collection,
+		Cid:        cid,
+		Seq:        seq,
+		Raw:        raw,
+		CreatedAt:  cat,
+	}
+
+	if err := p.inserters.recordsInserter.Insert(ctx, rec); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (p *Photocopy) handleCreatePost(ctx context.Context, rev string, recb []byte, uri, did, collection, rkey, cid string, indexedAt time.Time) error {

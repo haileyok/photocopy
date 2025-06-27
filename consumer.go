@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/bluesky-social/indigo/api/atproto"
@@ -136,19 +135,11 @@ func (p *Photocopy) repoCommit(ctx context.Context, evt *atproto.SyncSubscribeRe
 				continue
 			}
 
-			if !strings.HasPrefix(collection.String(), "app.bsky.") {
-				continue
-			}
-
-			if err := p.handleCreate(ctx, *rec, evt.Time, evt.Rev, did.String(), collection.String(), rkey.String(), reccid.String()); err != nil {
+			if err := p.handleCreate(ctx, *rec, evt.Time, evt.Rev, did.String(), collection.String(), rkey.String(), reccid.String(), fmt.Sprintf("%d", evt.Seq)); err != nil {
 				p.logger.Error("error handling create event", "error", err)
 				continue
 			}
 		case repomgr.EvtKindDeleteRecord:
-			if !strings.HasPrefix(collection.String(), "app.bsky.") {
-				continue
-			}
-
 			if err := p.handleDelete(ctx, did.String(), collection.String(), rkey.String()); err != nil {
 				p.logger.Error("error handling delete event", "error", err)
 				continue

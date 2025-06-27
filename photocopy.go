@@ -34,6 +34,8 @@ type Inserters struct {
 	interactionsInserter *clickhouse_inserter.Inserter
 	postsInserter        *clickhouse_inserter.Inserter
 	plcInserter          *clickhouse_inserter.Inserter
+	recordsInserter      *clickhouse_inserter.Inserter
+	deletesInserter      *clickhouse_inserter.Inserter
 }
 
 type Args struct {
@@ -111,10 +113,36 @@ func New(ctx context.Context, args *Args) (*Photocopy, error) {
 		return nil, err
 	}
 
+	ri, err := clickhouse_inserter.New(ctx, &clickhouse_inserter.Args{
+		PrometheusCounterPrefix: "photocopy_records",
+		Histogram:               insertionsHist,
+		BatchSize:               1000,
+		Logger:                  p.logger,
+		Conn:                    conn,
+		Query:                   "INSERT INTO records (did, rkey, collection, cid, seq, raw, created_at)",
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	di, err := clickhouse_inserter.New(ctx, &clickhouse_inserter.Args{
+		PrometheusCounterPrefix: "photocopy_records",
+		Histogram:               insertionsHist,
+		BatchSize:               1000,
+		Logger:                  p.logger,
+		Conn:                    conn,
+		Query:                   "INSERT INTO deletes (did, rkey, created_at)",
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	is := &Inserters{
 		followsInserter:      fi,
 		postsInserter:        pi,
 		interactionsInserter: ii,
+		recordsInserter:      ri,
+		deletesInserter:      di,
 	}
 
 	p.inserters = is
