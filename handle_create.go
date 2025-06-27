@@ -43,7 +43,7 @@ func (p *Photocopy) handleCreatePost(ctx context.Context, rev string, recb []byt
 		return err
 	}
 
-	post := &models.Post{
+	post := models.Post{
 		Uri:       uri,
 		Rkey:      rkey,
 		CreatedAt: *cat,
@@ -108,7 +108,7 @@ func (p *Photocopy) handleCreateFollow(ctx context.Context, recb []byte, uri, di
 		return err
 	}
 
-	follow := &models.Follow{
+	follow := models.Follow{
 		Uri:       uri,
 		Did:       did,
 		Rkey:      rkey,
@@ -130,7 +130,7 @@ func (p *Photocopy) handleCreateInteraction(ctx context.Context, recb []byte, ur
 		return fmt.Errorf("invalid collection type %s", collection)
 	}
 
-	interaction := &models.Interaction{
+	interaction := models.Interaction{
 		Uri:        uri,
 		Kind:       colPts[3],
 		Rkey:       rkey,

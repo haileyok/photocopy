@@ -3,6 +3,7 @@ package clickhouse_inserter
 import (
 	"context"
 	"log/slog"
+	"reflect"
 	"slices"
 	"sync"
 	"time"
@@ -136,7 +137,21 @@ func (i *Inserter) sendStream(ctx context.Context, toInsert []any) {
 	}
 
 	for _, d := range toInsert {
-		if err := batch.AppendStruct(&d); err != nil {
+		var structPtr any
+		if reflect.TypeOf(d).Kind() == reflect.Ptr {
+			structPtr = d
+		} else {
+			v := reflect.ValueOf(d)
+			if v.CanAddr() {
+				structPtr = v.Addr().Addr().Interface()
+			} else {
+				ptr := reflect.New(v.Type())
+				ptr.Elem().Set(v)
+				structPtr = ptr.Interface()
+			}
+		}
+
+		if err := batch.AppendStruct(structPtr); err != nil {
 			i.logger.Error("error appending to batch", "prefix", i.prefix, "error", err)
 		}
 	}

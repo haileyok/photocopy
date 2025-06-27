@@ -135,7 +135,7 @@ func (s *PLCScraper) Run(ctx context.Context) error {
 				continue
 			}
 
-			s.inserter.Insert(ctx, chEntry)
+			s.inserter.Insert(ctx, *chEntry)
 		}
 	}
 
