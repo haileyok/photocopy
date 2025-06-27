@@ -126,9 +126,9 @@ func New(ctx context.Context, args *Args) (*Photocopy, error) {
 	}
 
 	di, err := clickhouse_inserter.New(ctx, &clickhouse_inserter.Args{
-		PrometheusCounterPrefix: "photocopy_records",
+		PrometheusCounterPrefix: "photocopy_deletes",
 		Histogram:               insertionsHist,
-		BatchSize:               1000,
+		BatchSize:               100,
 		Logger:                  p.logger,
 		Conn:                    conn,
 		Query:                   "INSERT INTO deletes (did, rkey, created_at)",
