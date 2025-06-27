@@ -119,7 +119,7 @@ func New(ctx context.Context, args *Args) (*Photocopy, error) {
 		BatchSize:               1000,
 		Logger:                  p.logger,
 		Conn:                    conn,
-		Query:                   "INSERT INTO records (did, rkey, collection, cid, seq, raw, created_at)",
+		Query:                   "INSERT INTO record (did, rkey, collection, cid, seq, raw, created_at)",
 	})
 	if err != nil {
 		return nil, err
@@ -131,7 +131,7 @@ func New(ctx context.Context, args *Args) (*Photocopy, error) {
 		BatchSize:               100,
 		Logger:                  p.logger,
 		Conn:                    conn,
-		Query:                   "INSERT INTO deletes (did, rkey, created_at)",
+		Query:                   "INSERT INTO delete (did, rkey, created_at)",
 	})
 	if err != nil {
 		return nil, err
