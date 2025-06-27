@@ -2,31 +2,26 @@ package photocopy
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
-
-	"cloud.google.com/go/bigquery"
 )
 
 type PLCEntry struct {
-	Did       string           `json:"did" bigquery:"did"`
-	Operation PLCOperationType `json:"operation" bigquery:"operation"`
-	Cid       string           `json:"cid" bigquery:"cid"`
-	Nullified bool             `json:"nullified" bigquery:"nullified"`
-	CreatedAt time.Time        `json:"createdAt" bigquery:"created_at"`
+	Did       string           `json:"did"`
+	Operation PLCOperationType `json:"operation"`
+	Cid       string           `json:"cid"`
+	Nullified bool             `json:"nullified"`
+	CreatedAt time.Time        `json:"createdAt"`
 }
 
 type PLCOperation struct {
-	Sig                     string                `json:"sig" bigquery:"sig"`
-	Prev                    bigquery.NullString   `json:"prev" bigquery:"prev"`
-	Type                    string                `json:"type" bigquery:"type"`
-	Services                map[string]PLCService `json:"services" bigquery:"-"`
-	ServicesJSON            string                `json:"-" bigquery:"services"`
-	AlsoKnownAs             []string              `json:"alsoKnownAs" bigquery:"also_known_as"`
-	RotationKeys            []string              `json:"rotationKeys" bigquery:"rotation_keys"`
-	VerificationMethods     map[string]string     `json:"verificationMethods" bigquery:"-"`
-	VerificationMethodsJSON string                `json:"-" bigquery:"verification_methods"`
+	Sig                 string                `json:"sig" `
+	Prev                *string               `json:"prev"`
+	Type                string                `json:"type"`
+	Services            map[string]PLCService `json:"services"`
+	AlsoKnownAs         []string              `json:"alsoKnownAs"`
+	RotationKeys        []string              `json:"rotationKeys"`
+	VerificationMethods map[string]string     `json:"verificationMethods"`
 }
 
 type PLCTombstone struct {
@@ -51,10 +46,34 @@ type LegacyPLCOperation struct {
 }
 
 type PLCOperationType struct {
-	OperationType      string              `json:"-" bigquery:"operation_type"`
-	PLCOperation       *PLCOperation       `json:"-" bigquery:"plc_operation"`
-	PLCTombstone       *PLCTombstone       `json:"-" bigquery:"plc_tombstone"`
-	LegacyPLCOperation *LegacyPLCOperation `json:"-" bigquery:"legacy_plc_operation"`
+	OperationType      string
+	PLCOperation       *PLCOperation
+	PLCTombstone       *PLCTombstone
+	LegacyPLCOperation *LegacyPLCOperation
+}
+
+type ClickhousePLCEntry struct {
+	Did                      string    `ch:"did"`
+	Cid                      string    `ch:"cid"`
+	Nullified                bool      `ch:"nullified"`
+	CreatedAt                time.Time `ch:"created_at"`
+	PlcOpSig                 string    `ch:"plc_op_sig"`
+	PlcOpPrev                *string   `ch:"plc_op_prev"`
+	PlcOpType                string    `ch:"plc_op_type"`
+	PlcOpServices            string    `ch:"plc_op_services"`
+	PlcOpAlsoKnownAs         []string  `ch:"plc_op_also_known_as"`
+	PlcOpRotationKeys        []string  `ch:"plc_op_rotation_keys"`
+	PlcOpVerificationMethods string    `ch:"plc_op_verification_methods"`
+	PlcTombSig               string    `ch:"plc_tomb_sig"`
+	PlcTombPrev              string    `ch:"plc_tomb_prev"`
+	PlcTombType              string    `ch:"plc_tomb_type"`
+	LegacyOpSig              string    `ch:"legacy_op_sig"`
+	LegacyOpPrev             string    `ch:"legacy_op_prev"`
+	LegacyOpType             string    `ch:"legacy_op_type"`
+	LegacyOpHandle           string    `ch:"legacy_op_handle"`
+	LegacyOpService          string    `ch:"legacy_op_service"`
+	LegacyOpSigningKey       string    `ch:"legacy_op_signing_key"`
+	LegacyOpRecoveryKey      string    `ch:"legacy_op_recovery_key"`
 }
 
 func (o *PLCOperationType) UnmarshalJSON(data []byte) error {
@@ -105,47 +124,50 @@ func (o *PLCOperationType) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (o *PLCOperationType) MarshalJSON() ([]byte, error) {
-	if o.PLCOperation != nil {
-		return json.Marshal(o.PLCOperation)
+func (e *PLCEntry) prepareForClickhouse() (*ClickhousePLCEntry, error) {
+	che := &ClickhousePLCEntry{
+		Did:       e.Did,
+		Cid:       e.Cid,
+		Nullified: e.Nullified,
+		CreatedAt: e.CreatedAt,
 	}
-	if o.PLCTombstone != nil {
-		return json.Marshal(o.PLCTombstone)
-	}
-	if o.LegacyPLCOperation != nil {
-		return json.Marshal(o.LegacyPLCOperation)
-	}
-	return nil, errors.New("no valid operation type found")
-}
-
-func (o *PLCOperationType) Value() (any, error) {
-	return json.Marshal(o)
-}
-
-func (o *PLCOperationType) Scan(value any) error {
-	bytes, ok := value.([]byte)
-	if !ok {
-		return errors.New("could not scan PLCOperationType")
-	}
-	return json.Unmarshal(bytes, o)
-}
-
-func (e *PLCEntry) prepareForBigQuery() (map[string]bigquery.Value, string, error) {
 	if e.Operation.PLCOperation != nil {
+		pop := e.Operation.PLCOperation
+		che.PlcOpSig = pop.Sig
+		che.PlcOpPrev = pop.Prev
+		che.PlcOpType = pop.Type
+		che.PlcOpAlsoKnownAs = pop.AlsoKnownAs
+		che.PlcOpRotationKeys = pop.RotationKeys
 		if e.Operation.PLCOperation.Services != nil {
 			b, err := json.Marshal(e.Operation.PLCOperation.Services)
 			if err != nil {
-				return nil, "", fmt.Errorf("error marshaling services: %w", err)
+				return nil, fmt.Errorf("error marshaling services: %w", err)
 			}
-			e.Operation.PLCOperation.ServicesJSON = string(b)
+			che.PlcOpServices = string(b)
 		}
 		if e.Operation.PLCOperation.VerificationMethods != nil {
 			b, err := json.Marshal(e.Operation.PLCOperation.VerificationMethods)
 			if err != nil {
-				return nil, "", fmt.Errorf("error marshaling verification methods: %w", err)
+				return nil, fmt.Errorf("error marshaling verification methods: %w", err)
 			}
-			e.Operation.PLCOperation.VerificationMethodsJSON = string(b)
+			che.PlcOpVerificationMethods = string(b)
 		}
+		return che, nil
+	} else if e.Operation.PLCTombstone != nil {
+		che.PlcTombSig = e.Operation.PLCTombstone.Sig
+		che.PlcTombPrev = e.Operation.PLCTombstone.Prev
+		che.PlcTombType = e.Operation.PLCTombstone.Type
+		return che, nil
+	} else if e.Operation.LegacyPLCOperation != nil {
+		lop := e.Operation.LegacyPLCOperation
+		che.LegacyOpSig = lop.Sig
+		che.LegacyOpPrev = lop.Prev
+		che.LegacyOpType = lop.Type
+		che.LegacyOpService = lop.Service
+		che.LegacyOpHandle = lop.Handle
+		che.LegacyOpSigningKey = lop.SigningKey
+		che.LegacyOpRecoveryKey = lop.RecoveryKey
 	}
-	return nil, "", nil
+
+	return nil, fmt.Errorf("no valid plc operation type")
 }

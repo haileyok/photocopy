@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	inserter "github.com/haileyok/photocopy/internal"
+	"github.com/haileyok/photocopy/clickhouse_inserter"
 )
 
 type PLCScraper struct {
@@ -19,12 +19,12 @@ type PLCScraper struct {
 	logger     *slog.Logger
 	cursor     string
 	cursorFile string
-	inserter   *inserter.Inserter
+	inserter   *clickhouse_inserter.Inserter
 }
 
 type PLCScraperArgs struct {
 	Logger     *slog.Logger
-	Inserter   *inserter.Inserter
+	Inserter   *clickhouse_inserter.Inserter
 	CursorFile string
 }
 
@@ -129,9 +129,13 @@ func (s *PLCScraper) Run(ctx context.Context) error {
 				s.saveCursor(s.cursor)
 			}
 
-			entry.prepareForBigQuery()
+			chEntry, err := entry.prepareForClickhouse()
+			if err != nil {
+				s.logger.Error("error getting clickhouse entry from plc entry", "error", err)
+				continue
+			}
 
-			s.inserter.Insert(ctx, entry)
+			s.inserter.Insert(ctx, chEntry)
 		}
 	}
 

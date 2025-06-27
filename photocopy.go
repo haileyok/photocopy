@@ -8,7 +8,8 @@ import (
 	"sync"
 	"time"
 
-	inserter "github.com/haileyok/photocopy/internal"
+	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/haileyok/photocopy/clickhouse_inserter"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -29,8 +30,8 @@ type Photocopy struct {
 }
 
 type Inserters struct {
-	followsInserter *inserter.Inserter
-	plcInserter     *inserter.Inserter
+	followsInserter *clickhouse_inserter.Inserter
+	plcInserter     *clickhouse_inserter.Inserter
 }
 
 type Args struct {
@@ -39,6 +40,8 @@ type Args struct {
 	MetricsAddr          string
 	CursorFile           string
 	PLCScraperCursorFile string
+	ClickhouseAddr       string
+	ClickhouseDatabase   string
 	ClickhouseUser       string
 	ClickhousePass       string
 }
@@ -52,17 +55,31 @@ func New(ctx context.Context, args *Args) (*Photocopy, error) {
 		cursorFile:  args.CursorFile,
 	}
 
+	conn, err := clickhouse.Open(&clickhouse.Options{
+		Addr: []string{args.ClickhouseAddr},
+		Auth: clickhouse.Auth{
+			Database: args.ClickhouseDatabase,
+			Username: args.ClickhouseUser,
+			Password: args.ClickhousePass,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	insertionsHist := promauto.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "photocopy_inserts_time",
 		Help:    "histogram of photocopy inserts",
 		Buckets: prometheus.ExponentialBucketsRange(0.0001, 30, 20),
 	}, []string{"type"})
 
-	fi, err := inserter.New(ctx, &inserter.Args{
+	fi, err := clickhouse_inserter.New(ctx, &clickhouse_inserter.Args{
 		PrometheusCounterPrefix: "photocopy_follows",
 		Histogram:               insertionsHist,
 		BatchSize:               100,
 		Logger:                  p.logger,
+		Conn:                    conn,
+		Query:                   "",
 	})
 	if err != nil {
 		return nil, err
@@ -74,11 +91,19 @@ func New(ctx context.Context, args *Args) (*Photocopy, error) {
 
 	p.inserters = is
 
-	plci, err := inserter.New(ctx, &inserter.Args{
+	plci, err := clickhouse_inserter.New(ctx, &clickhouse_inserter.Args{
 		PrometheusCounterPrefix: "photocopy_plc_entries",
 		Histogram:               insertionsHist,
 		BatchSize:               100,
 		Logger:                  args.Logger,
+		Conn:                    conn,
+		Query: `INSERT INTO your_table_name (
+			did, cid, nullified, created_at, plc_op_sig, plc_op_prev, plc_op_type,
+			plc_op_services, plc_op_also_known_as, plc_op_rotation_keys,
+			plc_op_verification_methods, plc_tomb_sig, plc_tomb_prev, plc_tomb_type,
+			legacy_op_sig, legacy_op_prev, legacy_op_type, legacy_op_handle,
+			legacy_op_service, legacy_op_signing_key, legacy_op_recovery_key
+		)`,
 	})
 	if err != nil {
 		return nil, err

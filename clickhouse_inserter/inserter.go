@@ -1,19 +1,20 @@
-package inserter
+package clickhouse_inserter
 
 import (
 	"context"
-	"database/sql/driver"
 	"log/slog"
 	"slices"
 	"sync"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 type Inserter struct {
-	db             driver.Conn
+	conn           driver.Conn
+	query          string
 	mu             sync.Mutex
 	queuedEvents   []any
 	batchSize      int
@@ -24,15 +25,9 @@ type Inserter struct {
 	prefix         string
 }
 
-type BaseArgs struct {
-	CredentialsPath string
-	ProjectID       string
-	DatasetID       string
-	TableID         string
-}
-
 type Args struct {
-	BaseArgs
+	Conn                    driver.Conn
+	Query                   string
 	BatchSize               int
 	PrometheusCounterPrefix string
 	Logger                  *slog.Logger
@@ -44,10 +39,15 @@ func New(ctx context.Context, args *Args) (*Inserter, error) {
 		args.Logger = slog.Default()
 	}
 
-	// dataset := bqc.Dataset(args.DatasetID)
-	// table := dataset.Table(args.TableID)
-
-	inserter := &Inserter{}
+	inserter := &Inserter{
+		conn:      args.Conn,
+		query:     args.Query,
+		mu:        sync.Mutex{},
+		batchSize: args.BatchSize,
+		histogram: args.Histogram,
+		logger:    args.Logger,
+		prefix:    args.PrometheusCounterPrefix,
+	}
 
 	if args.PrometheusCounterPrefix != "" {
 		inserter.insertsCounter = promauto.NewCounterVec(prometheus.CounterOpts{
@@ -63,7 +63,7 @@ func New(ctx context.Context, args *Args) (*Inserter, error) {
 		})
 
 	} else {
-		args.Logger.Info("no prometheus prefix provided, no metrics will be registered for this counter", "dataset", args.DatasetID, "table", args.TableID)
+		args.Logger.Info("no prometheus prefix provided, no metrics will be registered for this counter", "query", args.Query)
 	}
 
 	return inserter, nil
@@ -124,8 +124,25 @@ func (i *Inserter) sendStream(ctx context.Context, toInsert []any) {
 	}
 
 	status := "ok"
+	defer func() {
+		i.insertsCounter.WithLabelValues(status).Add(float64(len(toInsert)))
+	}()
 
-	// TODO: do the insert
+	batch, err := i.conn.PrepareBatch(ctx, i.query)
+	if err != nil {
+		i.logger.Error("error creating batch", "prefix", i.prefix, "error", err)
+		status = "failed"
+		return
+	}
 
-	i.insertsCounter.WithLabelValues(status).Add(float64(len(toInsert)))
+	for _, d := range toInsert {
+		if err := batch.AppendStruct(&d); err != nil {
+			i.logger.Error("error appending to batch", "prefix", i.prefix, "error", err)
+		}
+	}
+
+	if err := batch.Send(); err != nil {
+		status = "failed"
+		i.logger.Error("error sending batch", "prefix", i.prefix, "error", err)
+	}
 }

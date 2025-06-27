@@ -14,9 +14,8 @@ import (
 
 func main() {
 	app := cli.App{
-		Name:   "photocopy",
-		Usage:  "bigquery inserter for firehose events",
-		Action: run,
+		Name:  "photocopy",
+		Usage: "bigquery inserter for firehose events",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    "relay-host",
@@ -44,6 +43,16 @@ func main() {
 				Required: true,
 			},
 			&cli.StringFlag{
+				Name:     "clickhouse-addr",
+				EnvVars:  []string{"PHOTOCOPY_CLICKHOUSE_ADDR"},
+				Required: true,
+			},
+			&cli.StringFlag{
+				Name:     "clickhouse-database",
+				EnvVars:  []string{"PHOTOCOPY_CLICKHOUSE_DATABASE"},
+				Required: true,
+			},
+			&cli.StringFlag{
 				Name:    "clickhouse-user",
 				EnvVars: []string{"PHOTOCOPY_CLICKHOUSE_USER"},
 				Value:   "default",
@@ -52,6 +61,16 @@ func main() {
 				Name:     "clickhouse-pass",
 				EnvVars:  []string{"PHOTOCOPY_CLICKHOUSE_PASS"},
 				Required: true,
+			},
+		},
+		Commands: cli.Commands{
+			&cli.Command{
+				Name:   "run",
+				Action: run,
+			},
+			&cli.Command{
+				Name:   "fetch-repos",
+				Action: runFetchRepos,
 			},
 		},
 		ErrWriter: os.Stderr,
@@ -89,6 +108,8 @@ var run = func(cmd *cli.Context) error {
 		MetricsAddr:          cmd.String("metrics-addr"),
 		CursorFile:           cmd.String("cursor-file"),
 		PLCScraperCursorFile: cmd.String("plc-scraper-cursor-file"),
+		ClickhouseAddr:       cmd.String("clickhouse-addr"),
+		ClickhouseDatabase:   cmd.String("clickhouse-database"),
 		ClickhouseUser:       cmd.String("clickhouse-user"),
 		ClickhousePass:       cmd.String("clickhouse-pass"),
 	})
@@ -108,6 +129,14 @@ var run = func(cmd *cli.Context) error {
 	if err := p.Run(ctx); err != nil {
 		return err
 	}
+
+	return nil
+}
+
+var runFetchRepos = func(cmd *cli.Context) error {
+	ctx := cmd.Context
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	return nil
 }
