@@ -137,6 +137,11 @@ func (e *PLCEntry) prepareForClickhouse() (*ClickhousePLCEntry, error) {
 			che.PlcOpPrev = *pop.Prev
 		}
 		che.PlcOpType = pop.Type
+		services := []string{}
+		for _, s := range pop.Services {
+			services = append(services, s.Endpoint)
+		}
+		che.PlcOpServices = services
 		che.PlcOpAlsoKnownAs = pop.AlsoKnownAs
 		che.PlcOpRotationKeys = pop.RotationKeys
 		if e.Operation.PLCOperation.Services == nil {
