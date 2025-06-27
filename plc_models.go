@@ -53,27 +53,26 @@ type PLCOperationType struct {
 }
 
 type ClickhousePLCEntry struct {
-	Did                      string    `ch:"did"`
-	Cid                      string    `ch:"cid"`
-	Nullified                bool      `ch:"nullified"`
-	CreatedAt                time.Time `ch:"created_at"`
-	PlcOpSig                 string    `ch:"plc_op_sig"`
-	PlcOpPrev                *string   `ch:"plc_op_prev"`
-	PlcOpType                string    `ch:"plc_op_type"`
-	PlcOpServices            string    `ch:"plc_op_services"`
-	PlcOpAlsoKnownAs         []string  `ch:"plc_op_also_known_as"`
-	PlcOpRotationKeys        []string  `ch:"plc_op_rotation_keys"`
-	PlcOpVerificationMethods string    `ch:"plc_op_verification_methods"`
-	PlcTombSig               string    `ch:"plc_tomb_sig"`
-	PlcTombPrev              string    `ch:"plc_tomb_prev"`
-	PlcTombType              string    `ch:"plc_tomb_type"`
-	LegacyOpSig              string    `ch:"legacy_op_sig"`
-	LegacyOpPrev             string    `ch:"legacy_op_prev"`
-	LegacyOpType             string    `ch:"legacy_op_type"`
-	LegacyOpHandle           string    `ch:"legacy_op_handle"`
-	LegacyOpService          string    `ch:"legacy_op_service"`
-	LegacyOpSigningKey       string    `ch:"legacy_op_signing_key"`
-	LegacyOpRecoveryKey      string    `ch:"legacy_op_recovery_key"`
+	Did                 string    `ch:"did"`
+	Cid                 string    `ch:"cid"`
+	Nullified           bool      `ch:"nullified"`
+	CreatedAt           time.Time `ch:"created_at"`
+	PlcOpSig            string    `ch:"plc_op_sig"`
+	PlcOpPrev           string    `ch:"plc_op_prev"`
+	PlcOpType           string    `ch:"plc_op_type"`
+	PlcOpServices       []string  `ch:"plc_op_services"`
+	PlcOpAlsoKnownAs    []string  `ch:"plc_op_also_known_as"`
+	PlcOpRotationKeys   []string  `ch:"plc_op_rotation_keys"`
+	PlcTombSig          string    `ch:"plc_tomb_sig"`
+	PlcTombPrev         string    `ch:"plc_tomb_prev"`
+	PlcTombType         string    `ch:"plc_tomb_type"`
+	LegacyOpSig         string    `ch:"legacy_op_sig"`
+	LegacyOpPrev        string    `ch:"legacy_op_prev"`
+	LegacyOpType        string    `ch:"legacy_op_type"`
+	LegacyOpHandle      string    `ch:"legacy_op_handle"`
+	LegacyOpService     string    `ch:"legacy_op_service"`
+	LegacyOpSigningKey  string    `ch:"legacy_op_signing_key"`
+	LegacyOpRecoveryKey string    `ch:"legacy_op_recovery_key"`
 }
 
 func (o *PLCOperationType) UnmarshalJSON(data []byte) error {
@@ -134,32 +133,17 @@ func (e *PLCEntry) prepareForClickhouse() (*ClickhousePLCEntry, error) {
 	if e.Operation.PLCOperation != nil {
 		pop := e.Operation.PLCOperation
 		che.PlcOpSig = pop.Sig
-		che.PlcOpPrev = pop.Prev
+		if pop.Prev != nil {
+			che.PlcOpPrev = *pop.Prev
+		}
 		che.PlcOpType = pop.Type
 		che.PlcOpAlsoKnownAs = pop.AlsoKnownAs
 		che.PlcOpRotationKeys = pop.RotationKeys
 		if e.Operation.PLCOperation.Services == nil {
-			ps := map[string]PLCService{}
-			e.Operation.PLCOperation.Services = ps
+			for _, s := range e.Operation.PLCOperation.Services {
+				che.PlcOpServices = append(che.PlcOpServices, s.Endpoint)
+			}
 		}
-
-		b, err := json.Marshal(e.Operation.PLCOperation.Services)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling services: %w", err)
-		}
-		che.PlcOpServices = string(b)
-
-		if e.Operation.PLCOperation.VerificationMethods == nil {
-			vm := map[string]string{}
-			e.Operation.PLCOperation.VerificationMethods = vm
-		}
-
-		b, err = json.Marshal(e.Operation.PLCOperation.VerificationMethods)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling verification methods: %w", err)
-		}
-		che.PlcOpVerificationMethods = string(b)
-
 		return che, nil
 	} else if e.Operation.PLCTombstone != nil {
 		che.PlcTombSig = e.Operation.PLCTombstone.Sig
