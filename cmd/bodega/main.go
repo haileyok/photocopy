@@ -303,5 +303,7 @@ QUALIFY row_number() OVER (PARTITION BY did ORDER BY created_at DESC) = 1
 
 	fmt.Printf("\nCompleted: %d processed, %d errors\n", processed, errored)
 
+	inserter.Close(context.TODO())
+
 	return nil
 }
