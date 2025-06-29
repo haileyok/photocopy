@@ -297,7 +297,7 @@ QUALIFY row_number() OVER (PARTITION BY did ORDER BY created_at DESC) = 1
 			eta = ", ETA: calculating..."
 		}
 
-		fmt.Printf("Progress: %d/%d processed (%.1f%%), %d errors, %.1f jobs/sec%s\n",
+		fmt.Printf("\rProgress: %d/%d processed (%.1f%%), %d errors, %.1f jobs/sec%s",
 			processed, len(entries), float64(processed)/float64(len(entries))*100, errored, rate, eta)
 	}
 
