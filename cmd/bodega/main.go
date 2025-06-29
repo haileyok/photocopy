@@ -222,7 +222,7 @@ QUALIFY row_number() OVER (PARTITION BY did ORDER BY created_at DESC) = 1
 	fmt.Printf("found %d entries", len(entries))
 
 	inserter, err := clickhouse_inserter.New(context.TODO(), &clickhouse_inserter.Args{
-		BatchSize: 10000,
+		BatchSize: 100000,
 		Logger:    slog.Default(),
 		Conn:      conn,
 		Query:     "INSERT INTO record (did, rkey, collection, cid, seq, raw, created_at)",
