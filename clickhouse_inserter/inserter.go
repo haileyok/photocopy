@@ -110,8 +110,10 @@ func (i *Inserter) Close(ctx context.Context) error {
 }
 
 func (i *Inserter) sendStream(ctx context.Context, toInsert []any) {
-	i.pendingSends.Inc()
-	defer i.pendingSends.Dec()
+	if i.pendingSends != nil {
+		i.pendingSends.Inc()
+		defer i.pendingSends.Dec()
+	}
 
 	if i.histogram != nil {
 		start := time.Now()
@@ -125,9 +127,11 @@ func (i *Inserter) sendStream(ctx context.Context, toInsert []any) {
 	}
 
 	status := "ok"
-	defer func() {
-		i.insertsCounter.WithLabelValues(status).Add(float64(len(toInsert)))
-	}()
+	if i.insertsCounter != nil {
+		defer func() {
+			i.insertsCounter.WithLabelValues(status).Add(float64(len(toInsert)))
+		}()
+	}
 
 	batch, err := i.conn.PrepareBatch(ctx, i.query)
 	if err != nil {
