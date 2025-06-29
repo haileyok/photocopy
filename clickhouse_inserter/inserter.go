@@ -11,6 +11,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"go.uber.org/ratelimit"
 )
 
 type Inserter struct {
@@ -24,6 +25,7 @@ type Inserter struct {
 	histogram      *prometheus.HistogramVec
 	logger         *slog.Logger
 	prefix         string
+	rateLimit      ratelimit.Limiter
 }
 
 type Args struct {
@@ -33,6 +35,7 @@ type Args struct {
 	PrometheusCounterPrefix string
 	Logger                  *slog.Logger
 	Histogram               *prometheus.HistogramVec
+	RateLimit               int
 }
 
 func New(ctx context.Context, args *Args) (*Inserter, error) {
@@ -48,6 +51,11 @@ func New(ctx context.Context, args *Args) (*Inserter, error) {
 		histogram: args.Histogram,
 		logger:    args.Logger,
 		prefix:    args.PrometheusCounterPrefix,
+	}
+
+	if args.RateLimit != 0 {
+		rateLimit := ratelimit.New(args.RateLimit)
+		inserter.rateLimit = rateLimit
 	}
 
 	if args.PrometheusCounterPrefix != "" {
@@ -158,6 +166,10 @@ func (i *Inserter) sendStream(ctx context.Context, toInsert []any) {
 		if err := batch.AppendStruct(structPtr); err != nil {
 			i.logger.Error("error appending to batch", "prefix", i.prefix, "error", err)
 		}
+	}
+
+	if i.rateLimit != nil {
+		i.rateLimit.Take()
 	}
 
 	if err := batch.Send(); err != nil {

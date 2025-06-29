@@ -226,6 +226,7 @@ QUALIFY row_number() OVER (PARTITION BY did ORDER BY created_at DESC) = 1
 		Logger:    slog.Default(),
 		Conn:      conn,
 		Query:     "INSERT INTO record (did, rkey, collection, cid, seq, raw, created_at)",
+		RateLimit: 2, // two inserts per second in the event of massive repos
 	})
 	if err != nil {
 		return err
