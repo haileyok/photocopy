@@ -62,25 +62,39 @@ func main() {
 }
 
 type RepoDownloader struct {
-	client     *http.Client
+	clients    map[string]*http.Client
 	rateLimits map[string]ratelimit.Limiter
 	mu         sync.RWMutex
 }
 
 func NewRepoDownloader() *RepoDownloader {
 	return &RepoDownloader{
-		client: &http.Client{
-			Transport: &http.Transport{
-				MaxIdleConns:        5000,
-				MaxIdleConnsPerHost: 1000,
-				IdleConnTimeout:     90 * time.Second,
-				DisableKeepAlives:   false,
-				MaxConnsPerHost:     1000,
-			},
-			Timeout: 30 * time.Second,
-		},
+		clients:    make(map[string]*http.Client),
 		rateLimits: make(map[string]ratelimit.Limiter),
 	}
+}
+
+func (rd *RepoDownloader) getClient(service string) *http.Client {
+	rd.mu.RLock()
+	client, exists := rd.clients[service]
+	rd.mu.RUnlock()
+
+	if exists {
+		return client
+	}
+
+	rd.mu.Lock()
+	defer rd.mu.Unlock()
+
+	if client, exists := rd.clients[service]; exists {
+		return client
+	}
+
+	client = &http.Client{
+		Timeout: 5 * time.Minute,
+	}
+	rd.clients[service] = client
+	return client
 }
 
 func (rd *RepoDownloader) getRateLimiter(service string) ratelimit.Limiter {
@@ -113,7 +127,9 @@ func (rd *RepoDownloader) downloadRepo(service, did string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	resp, err := rd.client.Do(req)
+	client := rd.getClient(service)
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download repo: %w", err)
 	}
@@ -219,7 +235,22 @@ QUALIFY row_number() OVER (PARTITION BY did ORDER BY created_at DESC) = 1
 		return err
 	}
 
-	fmt.Printf("found %d entries", len(entries))
+	fmt.Printf("found %d entries\n", len(entries))
+
+	fmt.Printf("getting most recent record for each did...")
+	var records []models.Record
+	if err := conn.Select(cmd.Context, &records, `
+SELECT did, created_at
+FROM default.record
+QUALIFY row_number() OVER (PARTITION BY did ORDER BY created_at ASC) = 1
+		`); err != nil {
+		return err
+	}
+
+	didCreatedAt := map[string]time.Time{}
+	for _, r := range records {
+		didCreatedAt[r.Did] = r.CreatedAt
+	}
 
 	inserter, err := clickhouse_inserter.New(context.TODO(), &clickhouse_inserter.Args{
 		BatchSize: 100000,
@@ -251,6 +282,7 @@ QUALIFY row_number() OVER (PARTITION BY did ORDER BY created_at DESC) = 1
 	}
 
 	fmt.Printf("Total jobs: %d across %d services \n", len(entries), len(serviceDids))
+	needOlderThan, _ := time.Parse(time.DateTime, "2025-06-29 04:18:22")
 
 	for service, dids := range serviceDids {
 		if len(dids) < 100 {
@@ -261,20 +293,32 @@ QUALIFY row_number() OVER (PARTITION BY did ORDER BY created_at DESC) = 1
 
 	processed := 0
 	errored := 0
+	skipped := 0
+
 	for service, dids := range serviceDids {
 		go func() {
 			for _, did := range dids {
+				lastRecord, exists := didCreatedAt[did]
+				if exists && lastRecord.Before(needOlderThan) {
+					skipped++
+					processed++
+					continue
+				}
+
 				ratelimiter := downloader.getRateLimiter(service)
 				ratelimiter.Take()
 
 				b, err := downloader.downloadRepo(service, did)
 				if err != nil {
+					errored++
+					processed++
 					continue
 				}
 
 				go func(b []byte, did string, inserter *clickhouse_inserter.Inserter) {
 					processRepo(b, did, inserter)
 				}(b, did, inserter)
+
 				processed++
 			}
 		}()
@@ -297,8 +341,8 @@ QUALIFY row_number() OVER (PARTITION BY did ORDER BY created_at DESC) = 1
 			eta = ", ETA: calculating..."
 		}
 
-		fmt.Printf("\rProgress: %d/%d processed (%.1f%%), %d errors, %.1f jobs/sec%s",
-			processed, len(entries), float64(processed)/float64(len(entries))*100, errored, rate, eta)
+		fmt.Printf("\rProgress: %d/%d processed (%.1f%%), %d skipped, %d errors, %.1f jobs/sec%s",
+			processed, len(entries), float64(processed)/float64(len(entries))*100, skipped, errored, rate, eta)
 	}
 
 	fmt.Printf("\nCompleted: %d processed, %d errors\n", processed, errored)
