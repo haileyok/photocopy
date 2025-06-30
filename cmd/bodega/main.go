@@ -265,11 +265,20 @@ QUALIFY row_number() OVER (PARTITION BY did ORDER BY created_at ASC) = 1
 
 	fmt.Printf("building download buckets...")
 
+	skipped := 0
+	total := 0
+	needOlderThan, _ := time.Parse(time.DateTime, "2025-06-28 04:18:22")
 	downloader := NewRepoDownloader()
-
 	serviceDids := map[string][]string{}
+
 	for _, e := range entries {
 		if len(e.PlcOpServices) == 0 {
+			continue
+		}
+
+		lastRecord, exists := didCreatedAt[e.Did]
+		if exists && lastRecord.Before(needOlderThan) {
+			skipped++
 			continue
 		}
 
@@ -278,11 +287,12 @@ QUALIFY row_number() OVER (PARTITION BY did ORDER BY created_at ASC) = 1
 				continue
 			}
 			serviceDids[s] = append(serviceDids[s], e.Did)
+			total++
 		}
 	}
 
-	fmt.Printf("Total jobs: %d across %d services \n", len(entries), len(serviceDids))
-	needOlderThan, _ := time.Parse(time.DateTime, "2025-06-29 04:18:22")
+	fmt.Printf("Total jobs: %d across %d services \n", total, len(serviceDids))
+	fmt.Printf("was able to skip %d repos\n", skipped)
 
 	for service, dids := range serviceDids {
 		if len(dids) < 100 {
@@ -293,18 +303,10 @@ QUALIFY row_number() OVER (PARTITION BY did ORDER BY created_at ASC) = 1
 
 	processed := 0
 	errored := 0
-	skipped := 0
 
 	for service, dids := range serviceDids {
 		go func() {
 			for _, did := range dids {
-				lastRecord, exists := didCreatedAt[did]
-				if exists && lastRecord.Before(needOlderThan) {
-					skipped++
-					processed++
-					continue
-				}
-
 				ratelimiter := downloader.getRateLimiter(service)
 				ratelimiter.Take()
 
@@ -330,7 +332,7 @@ QUALIFY row_number() OVER (PARTITION BY did ORDER BY created_at ASC) = 1
 	for range ticker.C {
 		elapsed := time.Since(startTime)
 		rate := float64(processed) / elapsed.Seconds()
-		remaining := len(entries) - processed
+		remaining := total - processed
 
 		var eta string
 		if rate > 0 {
@@ -342,7 +344,7 @@ QUALIFY row_number() OVER (PARTITION BY did ORDER BY created_at ASC) = 1
 		}
 
 		fmt.Printf("\rProgress: %d/%d processed (%.1f%%), %d skipped, %d errors, %.1f jobs/sec%s",
-			processed, len(entries), float64(processed)/float64(len(entries))*100, skipped, errored, rate, eta)
+			processed, total, float64(processed)/float64(total)*100, skipped, errored, rate, eta)
 	}
 
 	fmt.Printf("\nCompleted: %d processed, %d errors\n", processed, errored)
