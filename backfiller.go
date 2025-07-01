@@ -259,14 +259,17 @@ func (p *Photocopy) runBackfiller(ctx context.Context) error {
 
 	fmt.Println("querying clickhouse for dids and services...")
 
-	var alreadyFetched []string
+	type alreadyFetchedItem struct {
+		Did string `ch:"did"`
+	}
+	var alreadyFetched []alreadyFetchedItem
 	if err := p.conn.Select(ctx, &alreadyFetched, "SELECT DISTINCT(did) FROM default.record WHERE created_at < '2025-07-01'"); err != nil {
 		return err
 	}
 
 	alreadyFetchedMap := map[string]bool{}
 	for _, d := range alreadyFetched {
-		alreadyFetchedMap[d] = true
+		alreadyFetchedMap[d.Did] = true
 	}
 
 	fmt.Println("getting dids")
