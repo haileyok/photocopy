@@ -14,4 +14,5 @@ type Post struct {
 	ParentDid string    `ch:"parent_did"`
 	QuoteUri  string    `ch:"quote_uri"`
 	QuoteDid  string    `ch:"quote_did"`
+	Lang      string    `ch:"lang"`
 }

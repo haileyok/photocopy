@@ -50,7 +50,7 @@ func (p *Photocopy) handleCreateRecord(ctx context.Context, did, rkey, collectio
 		Collection: collection,
 		Cid:        cid,
 		Seq:        seq,
-		Raw:        raw,
+		Raw:        string(raw),
 		CreatedAt:  cat,
 	}
 
@@ -72,12 +72,18 @@ func (p *Photocopy) handleCreatePost(ctx context.Context, rev string, recb []byt
 		return err
 	}
 
+	lang := ""
+	if len(rec.Langs) != 0 {
+		lang = rec.Langs[0]
+	}
+
 	post := models.Post{
 		Uri:       uri,
 		Rkey:      rkey,
 		CreatedAt: *cat,
 		IndexedAt: indexedAt,
 		Did:       did,
+		Lang:      lang,
 	}
 
 	if rec.Reply != nil {

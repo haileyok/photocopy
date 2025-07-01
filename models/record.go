@@ -8,6 +8,6 @@ type Record struct {
 	Collection string    `ch:"collection"`
 	Cid        string    `ch:"cid"`
 	Seq        string    `ch:"seq"`
-	Raw        []byte    `ch:"raw"`
+	Raw        string    `ch:"raw"`
 	CreatedAt  time.Time `ch:"created_at"`
 }

@@ -13,6 +13,7 @@ help: ## Print info about all commands
 .PHONY: build
 build: ## Build all executables
 	go build -ldflags "-X main.Version=$(VERSION)" -o photocopy ./cmd/photocopy
+	go build -o bodega ./cmd/bodega
 
 .PHONY: run
 run:

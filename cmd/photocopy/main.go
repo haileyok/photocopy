@@ -62,6 +62,14 @@ func main() {
 				EnvVars:  []string{"PHOTOCOPY_CLICKHOUSE_PASS"},
 				Required: true,
 			},
+			&cli.StringFlag{
+				Name:     "ratelimit-bypass-key",
+				EnvVars:  []string{"PHOTOCOPY_RATELIMIT_BYPASS_KEY"},
+				Required: false,
+			},
+			&cli.BoolFlag{
+				Name: "with-backfill",
+			},
 		},
 		Commands: cli.Commands{
 			&cli.Command{
@@ -112,6 +120,7 @@ var run = func(cmd *cli.Context) error {
 		ClickhouseDatabase:   cmd.String("clickhouse-database"),
 		ClickhouseUser:       cmd.String("clickhouse-user"),
 		ClickhousePass:       cmd.String("clickhouse-pass"),
+		RatelimitBypassKey:   cmd.String("ratelimit-bypass-key"),
 	})
 	if err != nil {
 		panic(err)
@@ -127,7 +136,7 @@ var run = func(cmd *cli.Context) error {
 		cancel()
 	}()
 
-	if err := p.Run(ctx); err != nil {
+	if err := p.Run(ctx, cmd.Bool("with-backfill")); err != nil {
 		panic(err)
 	}
 

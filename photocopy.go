@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/haileyok/photocopy/clickhouse_inserter"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -27,6 +28,10 @@ type Photocopy struct {
 	inserters *Inserters
 
 	plcScraper *PLCScraper
+
+	ratelimitBypassKey string
+
+	conn driver.Conn
 }
 
 type Inserters struct {
@@ -48,17 +53,10 @@ type Args struct {
 	ClickhouseDatabase   string
 	ClickhouseUser       string
 	ClickhousePass       string
+	RatelimitBypassKey   string
 }
 
 func New(ctx context.Context, args *Args) (*Photocopy, error) {
-	p := &Photocopy{
-		logger:      args.Logger,
-		metricsAddr: args.MetricsAddr,
-		relayHost:   args.RelayHost,
-		wg:          sync.WaitGroup{},
-		cursorFile:  args.CursorFile,
-	}
-
 	conn, err := clickhouse.Open(&clickhouse.Options{
 		Addr: []string{args.ClickhouseAddr},
 		Auth: clickhouse.Auth{
@@ -71,6 +69,16 @@ func New(ctx context.Context, args *Args) (*Photocopy, error) {
 		return nil, err
 	}
 
+	p := &Photocopy{
+		logger:             args.Logger,
+		metricsAddr:        args.MetricsAddr,
+		relayHost:          args.RelayHost,
+		wg:                 sync.WaitGroup{},
+		cursorFile:         args.CursorFile,
+		ratelimitBypassKey: args.RatelimitBypassKey,
+		conn:               conn,
+	}
+
 	insertionsHist := promauto.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "photocopy_inserts_time",
 		Help:    "histogram of photocopy inserts",
@@ -80,10 +88,11 @@ func New(ctx context.Context, args *Args) (*Photocopy, error) {
 	fi, err := clickhouse_inserter.New(ctx, &clickhouse_inserter.Args{
 		PrometheusCounterPrefix: "photocopy_follows",
 		Histogram:               insertionsHist,
-		BatchSize:               1000,
+		BatchSize:               250_000,
 		Logger:                  p.logger,
 		Conn:                    conn,
 		Query:                   "INSERT INTO follow (uri, did, rkey, created_at, indexed_at, subject)",
+		RateLimit:               3,
 	})
 	if err != nil {
 		return nil, err
@@ -92,10 +101,11 @@ func New(ctx context.Context, args *Args) (*Photocopy, error) {
 	pi, err := clickhouse_inserter.New(ctx, &clickhouse_inserter.Args{
 		PrometheusCounterPrefix: "photocopy_posts",
 		Histogram:               insertionsHist,
-		BatchSize:               100,
+		BatchSize:               250_000,
 		Logger:                  p.logger,
 		Conn:                    conn,
-		Query:                   "INSERT INTO post (uri, did, rkey, created_at, indexed_at, root_uri, root_did, parent_uri, parent_did, quote_uri, quote_did)",
+		Query:                   "INSERT INTO post (uri, did, rkey, created_at, indexed_at, root_uri, root_did, parent_uri, parent_did, quote_uri, quote_did, lang)",
+		RateLimit:               3,
 	})
 	if err != nil {
 		return nil, err
@@ -104,10 +114,11 @@ func New(ctx context.Context, args *Args) (*Photocopy, error) {
 	ii, err := clickhouse_inserter.New(ctx, &clickhouse_inserter.Args{
 		PrometheusCounterPrefix: "photocopy_interactions",
 		Histogram:               insertionsHist,
-		BatchSize:               1000,
+		BatchSize:               250_000,
 		Logger:                  p.logger,
 		Conn:                    conn,
 		Query:                   "INSERT INTO interaction (uri, did, rkey, kind, created_at, indexed_at, subject_uri, subject_did)",
+		RateLimit:               3,
 	})
 	if err != nil {
 		return nil, err
@@ -116,10 +127,11 @@ func New(ctx context.Context, args *Args) (*Photocopy, error) {
 	ri, err := clickhouse_inserter.New(ctx, &clickhouse_inserter.Args{
 		PrometheusCounterPrefix: "photocopy_records",
 		Histogram:               insertionsHist,
-		BatchSize:               1000,
+		BatchSize:               250_000,
 		Logger:                  p.logger,
 		Conn:                    conn,
 		Query:                   "INSERT INTO record (did, rkey, collection, cid, seq, raw, created_at)",
+		RateLimit:               3,
 	})
 	if err != nil {
 		return nil, err
@@ -128,10 +140,11 @@ func New(ctx context.Context, args *Args) (*Photocopy, error) {
 	di, err := clickhouse_inserter.New(ctx, &clickhouse_inserter.Args{
 		PrometheusCounterPrefix: "photocopy_deletes",
 		Histogram:               insertionsHist,
-		BatchSize:               100,
+		BatchSize:               250_000,
 		Logger:                  p.logger,
 		Conn:                    conn,
 		Query:                   "INSERT INTO delete (did, rkey, created_at)",
+		RateLimit:               3,
 	})
 	if err != nil {
 		return nil, err
@@ -180,7 +193,7 @@ func New(ctx context.Context, args *Args) (*Photocopy, error) {
 	return p, nil
 }
 
-func (p *Photocopy) Run(baseCtx context.Context) error {
+func (p *Photocopy) Run(baseCtx context.Context, withBackfill bool) error {
 	ctx, cancel := context.WithCancel(baseCtx)
 
 	metricsServer := http.NewServeMux()
@@ -205,6 +218,14 @@ func (p *Photocopy) Run(baseCtx context.Context) error {
 			panic(fmt.Errorf("failed to start plc scraper: %w", err))
 		}
 	}(ctx)
+
+	if withBackfill {
+		go func(ctx context.Context) {
+			if err := p.runBackfiller(ctx); err != nil {
+				panic(fmt.Errorf("error starting backfiller: %w", err))
+			}
+		}(ctx)
+	}
 
 	<-ctx.Done()
 

@@ -1,4 +1,4 @@
-package main
+package photocopy
 
 import (
 	"bytes"
@@ -6,72 +6,32 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2"
 	atproto_repo "github.com/bluesky-social/indigo/atproto/repo"
-	"github.com/bluesky-social/indigo/atproto/syntax"
 	"github.com/bluesky-social/indigo/repo"
 	"github.com/bluesky-social/indigo/util"
-	"github.com/haileyok/photocopy/clickhouse_inserter"
-	"github.com/haileyok/photocopy/models"
 	"github.com/ipfs/go-cid"
 	"github.com/ipld/go-car"
 	_ "github.com/joho/godotenv/autoload"
-	"github.com/urfave/cli/v2"
 	"go.uber.org/ratelimit"
 )
-
-func main() {
-	app := cli.App{
-		Name:   "bodega",
-		Action: run,
-		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:     "clickhouse-addr",
-				EnvVars:  []string{"PHOTOCOPY_CLICKHOUSE_ADDR"},
-				Required: true,
-			},
-			&cli.StringFlag{
-				Name:     "clickhouse-database",
-				EnvVars:  []string{"PHOTOCOPY_CLICKHOUSE_DATABASE"},
-				Required: true,
-			},
-			&cli.StringFlag{
-				Name:    "clickhouse-user",
-				EnvVars: []string{"PHOTOCOPY_CLICKHOUSE_USER"},
-				Value:   "default",
-			},
-			&cli.StringFlag{
-				Name:     "clickhouse-pass",
-				EnvVars:  []string{"PHOTOCOPY_CLICKHOUSE_PASS"},
-				Required: true,
-			},
-			&cli.BoolFlag{
-				Name:  "debug",
-				Value: false,
-			},
-		},
-	}
-
-	app.Run(os.Args)
-}
 
 type RepoDownloader struct {
 	clients    map[string]*http.Client
 	rateLimits map[string]ratelimit.Limiter
 	mu         sync.RWMutex
+	p          *Photocopy
 }
 
-func NewRepoDownloader() *RepoDownloader {
+func NewRepoDownloader(p *Photocopy) *RepoDownloader {
 	return &RepoDownloader{
 		clients:    make(map[string]*http.Client),
 		rateLimits: make(map[string]ratelimit.Limiter),
+		p:          p,
 	}
 }
 
@@ -92,12 +52,16 @@ func (rd *RepoDownloader) getClient(service string) *http.Client {
 	}
 
 	client = util.RobustHTTPClient()
-	client.Timeout = 30 * time.Minute
+	client.Timeout = 45 * time.Second
 	rd.clients[service] = client
 	return client
 }
 
 func (rd *RepoDownloader) getRateLimiter(service string) ratelimit.Limiter {
+	if !strings.HasSuffix(service, ".bsky.network") {
+		service = "third-party"
+	}
+
 	rd.mu.RLock()
 	limiter, exists := rd.rateLimits[service]
 	rd.mu.RUnlock()
@@ -127,6 +91,10 @@ func (rd *RepoDownloader) downloadRepo(service, did string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
+	if rd.p.ratelimitBypassKey != "" && strings.HasSuffix(service, ".bsky.network") {
+		req.Header.Set("x-ratelimit-bypass", rd.p.ratelimitBypassKey)
+	}
+
 	client := rd.getClient(service)
 
 	resp, err := client.Do(req)
@@ -136,6 +104,9 @@ func (rd *RepoDownloader) downloadRepo(service, did string) ([]byte, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == 400 {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
@@ -147,7 +118,7 @@ func (rd *RepoDownloader) downloadRepo(service, did string) ([]byte, error) {
 	return b, nil
 }
 
-func processRepo(b []byte, did string, inserter *clickhouse_inserter.Inserter) error {
+func (p *Photocopy) processRepo(ctx context.Context, b []byte, did string) error {
 	bs := atproto_repo.NewTinyBlockstore()
 	cs, err := car.NewCarReader(bytes.NewReader(b))
 	if err != nil {
@@ -176,27 +147,9 @@ func processRepo(b []byte, did string, inserter *clickhouse_inserter.Inserter) e
 		if err != nil {
 			return nil
 		}
-
-		var cat time.Time
-		tid, err := syntax.ParseTID(rkey)
-		if err != nil {
-			cat = time.Now()
-		} else {
-			cat = tid.Time()
+		if err := p.handleCreate(ctx, b.RawData(), time.Now().Format(time.RFC3339Nano), "unk", did, nsid, rkey, cidStr, "unk"); err != nil {
+			return err
 		}
-
-		rec := models.Record{
-			Did:        did,
-			Rkey:       rkey,
-			Collection: nsid,
-			Cid:        cidStr,
-			Seq:        "",
-			Raw:        string(b.RawData()),
-			CreatedAt:  cat,
-		}
-
-		inserter.Insert(context.TODO(), rec)
-
 		return nil
 	}); err != nil {
 		return fmt.Errorf("erorr traversing records: %v", err)
@@ -221,10 +174,17 @@ type ListReposRepo struct {
 func (rd *RepoDownloader) getDidsFromService(ctx context.Context, service string) ([]ListReposRepo, error) {
 	var cursor string
 	var repos []ListReposRepo
+	if service == "https://atproto.brid.gy" {
+		return nil, nil
+	}
 	for {
 		req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("%s/xrpc/com.atproto.sync.listRepos?limit=1000&cursor=%s", service, cursor), nil)
 		if err != nil {
 			return nil, err
+		}
+
+		if rd.p.ratelimitBypassKey != "" && strings.HasSuffix(service, ".bsky.network") {
+			req.Header.Set("x-ratelimit-bypass", rd.p.ratelimitBypassKey)
 		}
 
 		rl := rd.getRateLimiter(service)
@@ -246,90 +206,101 @@ func (rd *RepoDownloader) getDidsFromService(ctx context.Context, service string
 			return nil, fmt.Errorf("error decoding repos response: %w", err)
 		}
 
-		repos = append(repos, reposResp.Repos...)
+		for _, repo := range reposResp.Repos {
+			if repo.Status != nil {
+				if *repo.Status == "deleted" || *repo.Status == "takendown" || *repo.Status == "deactivated" {
+					continue
+				}
+			}
 
-		if len(reposResp.Repos) != 1000 {
+			repos = append(repos, repo)
+		}
+
+		if len(reposResp.Repos) != 1000 || reposResp.Cursor == "" {
 			break
 		}
+
+		fmt.Printf("cursor %s service %s\n", reposResp.Cursor, service)
+
+		cursor = reposResp.Cursor
 	}
 
 	return repos, nil
 }
 
-var run = func(cmd *cli.Context) error {
-	startTime := time.Now()
+type ListServicesResponse struct {
+	Cursor string                     `json:"cursor"`
+	Hosts  []ListServicesResponseItem `json:"hosts"`
+}
 
-	conn, err := clickhouse.Open(&clickhouse.Options{
-		Addr: []string{cmd.String("clickhouse-addr")},
-		Auth: clickhouse.Auth{
-			Database: cmd.String("clickhouse-database"),
-			Username: cmd.String("clickhouse-user"),
-			Password: cmd.String("clickhouse-pass"),
-		},
-	})
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
+type ListServicesResponseItem struct {
+	Hostname string `json:"hostname"`
+	Status   string `json:"status"`
+}
+
+func (p *Photocopy) runBackfiller(ctx context.Context) error {
+	startTime := time.Now()
 
 	fmt.Println("querying clickhouse for dids and services...")
 
-	type servicesQueryRow struct {
-		PlcOpServices []string `ch:"plc_op_services"`
-	}
-	var servicesQueryRows []servicesQueryRow
-	if err := conn.Select(cmd.Context, &servicesQueryRows, `
-		SELECT DISTINCT(plc_op_services) FROM default.plc WHERE arrayExists(x -> x LIKE '%.bsky.network', plc_op_services)
-		`); err != nil {
-		return err
+	var hostsCursor string
+	var sevs []ListServicesResponseItem
+	for {
+		if hostsCursor != "" {
+			hostsCursor = "&cursor=" + hostsCursor
+		}
+		req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("https://relay1.us-east.bsky.network/xrpc/com.atproto.sync.listHosts?limit=1000%s", hostsCursor), nil)
+		if err != nil {
+			return err
+		}
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("received non-200 response code: %d", resp.StatusCode)
+		}
+
+		var sevsResp ListServicesResponse
+		if err := json.NewDecoder(resp.Body).Decode(&sevsResp); err != nil {
+			return fmt.Errorf("error decoding sevs response: %w", err)
+		}
+
+		for _, sev := range sevsResp.Hosts {
+			if sev.Status != "active" {
+				continue
+			}
+
+			sevs = append(sevs, sev)
+		}
+
+		if len(sevsResp.Hosts) != 1000 || sevsResp.Cursor == "" {
+			break
+		}
+
+		hostsCursor = sevsResp.Cursor
 	}
 
 	servicesDids := map[string][]string{}
-	for _, svcs := range servicesQueryRows {
-		for _, s := range svcs.PlcOpServices {
-			servicesDids[s] = []string{}
-		}
+	for _, sev := range sevs {
+		servicesDids["https://"+sev.Hostname] = []string{}
 	}
 
 	fmt.Printf("found %d services\n", len(servicesDids))
 
-	fmt.Printf("getting most recent record for each did...")
-	var records []models.Record
-	if err := conn.Select(cmd.Context, &records, `
-SELECT did, created_at
-FROM default.record
-QUALIFY row_number() OVER (PARTITION BY did ORDER BY created_at ASC) = 1
-		`); err != nil {
-		return err
-	}
-
 	fmt.Printf("collecting dids...\n")
-
-	didCreatedAt := map[string]time.Time{}
-	for _, r := range records {
-		didCreatedAt[r.Did] = r.CreatedAt
-	}
-
-	inserter, err := clickhouse_inserter.New(context.TODO(), &clickhouse_inserter.Args{
-		BatchSize: 100000,
-		Logger:    slog.Default(),
-		Conn:      conn,
-		Query:     "INSERT INTO record (did, rkey, collection, cid, seq, raw, created_at)",
-		RateLimit: 2, // two inserts per second in the event of massive repos
-	})
-	if err != nil {
-		return err
-	}
 
 	fmt.Printf("building download buckets...")
 
 	skipped := 0
-	total := 0
-	needOlderThan, _ := time.Parse(time.DateTime, "2025-06-28 04:18:22")
-	downloader := NewRepoDownloader()
+	downloader := NewRepoDownloader(p)
 	serviceDids := map[string][]string{}
 
 	wg := sync.WaitGroup{}
+	mplk := sync.Mutex{}
 	for s := range servicesDids {
 		wg.Add(1)
 		go func() {
@@ -341,14 +312,10 @@ QUALIFY row_number() OVER (PARTITION BY did ORDER BY created_at ASC) = 1
 			}
 			dids := []string{}
 			for _, r := range repos {
-				lastRecord, exists := didCreatedAt[r.Did]
-				if exists && lastRecord.Before(needOlderThan) {
-					skipped++
-					continue
-				}
-
 				dids = append(dids, r.Did)
 			}
+			mplk.Lock()
+			defer mplk.Unlock()
 			serviceDids[s] = dids
 		}()
 	}
@@ -356,19 +323,33 @@ QUALIFY row_number() OVER (PARTITION BY did ORDER BY created_at ASC) = 1
 	fmt.Println("getting all the repos...")
 	wg.Wait()
 
-	fmt.Printf("Total jobs: %d across %d services \n", total, len(serviceDids))
 	fmt.Printf("was able to skip %d repos\n", skipped)
+
+	total := 0
 
 	for service, dids := range serviceDids {
 		if len(dids) < 100 {
 			continue
 		}
 		fmt.Printf("%s: %d jobs\n", service, len(dids))
+		total += len(dids)
+	}
+
+	fmt.Printf("Total jobs: %d across %d services \n", total, len(serviceDids))
+
+	for _, c := range downloader.clients {
+		c.Timeout = 10 * time.Minute
+	}
+
+	for s := range downloader.rateLimits {
+		if p.ratelimitBypassKey != "" && strings.HasSuffix(s, ".bsky.network") {
+			downloader.rateLimits[s] = ratelimit.New(25)
+		}
 	}
 
 	processed := 0
 	errored := 0
-
+	var errors []error
 	for service, dids := range serviceDids {
 		go func() {
 			for _, did := range dids {
@@ -379,12 +360,15 @@ QUALIFY row_number() OVER (PARTITION BY did ORDER BY created_at ASC) = 1
 				if err != nil {
 					errored++
 					processed++
+					errors = append(errors, err)
 					continue
 				}
 
-				go func(b []byte, did string, inserter *clickhouse_inserter.Inserter) {
-					processRepo(b, did, inserter)
-				}(b, did, inserter)
+				go func(b []byte, did string) {
+					if err := p.processRepo(ctx, b, did); err != nil {
+						fmt.Printf("error processing backfill record: %v\n", err)
+					}
+				}(b, did)
 
 				processed++
 			}
@@ -408,13 +392,17 @@ QUALIFY row_number() OVER (PARTITION BY did ORDER BY created_at ASC) = 1
 			eta = ", ETA: calculating..."
 		}
 
+		for _, err := range errors {
+			fmt.Printf("%v\n", err)
+		}
+
+		errors = nil
+
 		fmt.Printf("\rProgress: %d/%d processed (%.1f%%), %d skipped, %d errors, %.1f jobs/sec%s",
 			processed, total, float64(processed)/float64(total)*100, skipped, errored, rate, eta)
 	}
 
 	fmt.Printf("\nCompleted: %d processed, %d errors\n", processed, errored)
-
-	inserter.Close(context.TODO())
 
 	return nil
 }
