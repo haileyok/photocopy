@@ -130,7 +130,7 @@ func (p *Photocopy) handleCreatePost(ctx context.Context, rev string, recb []byt
 		return err
 	}
 
-	if rec.Text != "" {
+	if rec.Text != "" && p.nervanaClient != nil {
 		go func(ctx context.Context, rec bsky.FeedPost, did, rkey string) {
 			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
