@@ -27,7 +27,7 @@ func (p *Photocopy) newNervanaRequest(ctx context.Context, text string) (*http.R
 		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", p.nervanaEndpoint, bytes.NewReader(b))
+	req, err := http.NewRequestWithContext(ctx, "POST", p.nervanaEndpoint, bytes.NewReader(b))
 
 	req.Header.Set("Authorization", "Bearer "+p.nervanaApiKey)
 
