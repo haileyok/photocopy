@@ -70,6 +70,12 @@ func main() {
 			&cli.BoolFlag{
 				Name: "with-backfill",
 			},
+			&cli.StringFlag{
+				Name: "nervana-endpoint",
+			},
+			&cli.StringFlag{
+				Name: "nervana-api-key",
+			},
 		},
 		Commands: cli.Commands{
 			&cli.Command{
@@ -121,6 +127,8 @@ var run = func(cmd *cli.Context) error {
 		ClickhouseUser:       cmd.String("clickhouse-user"),
 		ClickhousePass:       cmd.String("clickhouse-pass"),
 		RatelimitBypassKey:   cmd.String("ratelimit-bypass-key"),
+		NervanaEndpoint:      cmd.String("nervana-endpoint"),
+		NervanaApiKey:        cmd.String("nervana-api-key"),
 	})
 	if err != nil {
 		panic(err)

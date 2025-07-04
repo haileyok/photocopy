@@ -32,6 +32,10 @@ type Photocopy struct {
 	ratelimitBypassKey string
 
 	conn driver.Conn
+
+	nervanaClient   *http.Client
+	nervanaEndpoint string
+	nervanaApiKey   string
 }
 
 type Inserters struct {
@@ -41,6 +45,7 @@ type Inserters struct {
 	plcInserter          *clickhouse_inserter.Inserter
 	recordsInserter      *clickhouse_inserter.Inserter
 	deletesInserter      *clickhouse_inserter.Inserter
+	labelsInserter       *clickhouse_inserter.Inserter
 }
 
 type Args struct {
@@ -54,6 +59,8 @@ type Args struct {
 	ClickhouseUser       string
 	ClickhousePass       string
 	RatelimitBypassKey   string
+	NervanaEndpoint      string
+	NervanaApiKey        string
 }
 
 func New(ctx context.Context, args *Args) (*Photocopy, error) {
@@ -150,12 +157,26 @@ func New(ctx context.Context, args *Args) (*Photocopy, error) {
 		return nil, err
 	}
 
+	li, err := clickhouse_inserter.New(ctx, &clickhouse_inserter.Args{
+		PrometheusCounterPrefix: "photocopy_labels",
+		Histogram:               insertionsHist,
+		BatchSize:               100,
+		Logger:                  p.logger,
+		Conn:                    conn,
+		Query:                   "INSERT INTO post_label (did, rkey, text, label, entity_id, description, topic, created_at)",
+		RateLimit:               3,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	is := &Inserters{
 		followsInserter:      fi,
 		postsInserter:        pi,
 		interactionsInserter: ii,
 		recordsInserter:      ri,
 		deletesInserter:      di,
+		labelsInserter:       li,
 	}
 
 	p.inserters = is
@@ -189,6 +210,14 @@ func New(ctx context.Context, args *Args) (*Photocopy, error) {
 
 	p.inserters.plcInserter = plci
 	p.plcScraper = plcs
+
+	if args.NervanaApiKey != "" && args.NervanaEndpoint != "" {
+		p.nervanaClient = &http.Client{
+			Timeout: 5 * time.Second,
+		}
+		p.nervanaEndpoint = args.NervanaEndpoint
+		p.nervanaApiKey = args.NervanaApiKey
+	}
 
 	return p, nil
 }

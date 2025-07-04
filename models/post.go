@@ -15,4 +15,5 @@ type Post struct {
 	QuoteUri  string    `ch:"quote_uri"`
 	QuoteDid  string    `ch:"quote_did"`
 	Lang      string    `ch:"lang"`
+	Text      string    `ch:"text"`
 }

@@ -84,6 +84,7 @@ func (p *Photocopy) handleCreatePost(ctx context.Context, rev string, recb []byt
 		IndexedAt: indexedAt,
 		Did:       did,
 		Lang:      lang,
+		Text:      rec.Text,
 	}
 
 	if rec.Reply != nil {
@@ -127,6 +128,32 @@ func (p *Photocopy) handleCreatePost(ctx context.Context, rev string, recb []byt
 
 	if err := p.inserters.postsInserter.Insert(ctx, post); err != nil {
 		return err
+	}
+
+	if rec.Text != "" {
+		go func(ctx context.Context, rec bsky.FeedPost, did, rkey string) {
+			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+
+			nervanaItems, err := p.makeNervanaRequest(ctx, rec.Text)
+			if err != nil {
+				p.logger.Error("error making nervana items request", "error", err)
+				return
+			}
+
+			for _, ni := range nervanaItems {
+				postLabel := models.PostLabel{
+					Did:         did,
+					Rkey:        rkey,
+					Text:        ni.Text,
+					Label:       ni.Label,
+					EntityId:    ni.EntityId,
+					Description: ni.Description,
+					Topic:       "",
+				}
+				p.inserters.labelsInserter.Insert(ctx, postLabel)
+			}
+		}(ctx, rec, did, rkey)
 	}
 
 	return nil
