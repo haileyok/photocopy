@@ -71,10 +71,12 @@ func main() {
 				Name: "with-backfill",
 			},
 			&cli.StringFlag{
-				Name: "nervana-endpoint",
+				Name:    "nervana-endpoint",
+				EnvVars: []string{"PHOTOCOPY_NERVANA_ENDPOINT"},
 			},
 			&cli.StringFlag{
-				Name: "nervana-api-key",
+				Name:    "nervana-api-key",
+				EnvVars: []string{"PHOTOCOPY_NERVANA_API_KEY"},
 			},
 		},
 		Commands: cli.Commands{
