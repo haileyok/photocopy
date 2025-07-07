@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -130,7 +131,8 @@ func (p *Photocopy) handleCreatePost(ctx context.Context, rev string, recb []byt
 		return err
 	}
 
-	if rec.Text != "" && p.nervanaClient != nil {
+	isEn := slices.Contains(rec.Langs, "en")
+	if rec.Text != "" && rec.Reply == nil && isEn && p.nervanaClient != nil {
 		go func(ctx context.Context, rec bsky.FeedPost, did, rkey string) {
 			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
