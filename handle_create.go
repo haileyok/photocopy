@@ -152,6 +152,7 @@ func (p *Photocopy) handleCreatePost(ctx context.Context, rev string, recb []byt
 					EntityId:    ni.EntityId,
 					Description: ni.Description,
 					Topic:       "",
+					CreatedAt:   time.Now(),
 				}
 				p.inserters.labelsInserter.Insert(ctx, postLabel)
 			}
