@@ -11,6 +11,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/haileyok/photocopy/clickhouse_inserter"
+	"github.com/haileyok/photocopy/nervana"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -33,7 +34,7 @@ type Photocopy struct {
 
 	conn driver.Conn
 
-	nervanaClient   *http.Client
+	nervanaClient   *nervana.Client
 	nervanaEndpoint string
 	nervanaApiKey   string
 }
@@ -212,11 +213,7 @@ func New(ctx context.Context, args *Args) (*Photocopy, error) {
 	p.plcScraper = plcs
 
 	if args.NervanaApiKey != "" && args.NervanaEndpoint != "" {
-		p.nervanaClient = &http.Client{
-			Timeout: 5 * time.Second,
-		}
-		p.nervanaEndpoint = args.NervanaEndpoint
-		p.nervanaApiKey = args.NervanaApiKey
+		p.nervanaClient = nervana.NewClient(args.NervanaEndpoint, args.NervanaApiKey)
 	}
 
 	return p, nil

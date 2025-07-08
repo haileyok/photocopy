@@ -137,7 +137,7 @@ func (p *Photocopy) handleCreatePost(ctx context.Context, rev string, recb []byt
 			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
 
-			nervanaItems, err := p.makeNervanaRequest(ctx, rec.Text)
+			nervanaItems, err := p.nervanaClient.MakeRequest(ctx, rec.Text)
 			if err != nil {
 				p.logger.Error("error making nervana items request", "error", err)
 				return

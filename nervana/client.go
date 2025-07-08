@@ -1,4 +1,4 @@
-package photocopy
+package nervana
 
 import (
 	"bytes"
@@ -7,7 +7,24 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
+
+type Client struct {
+	cli      *http.Client
+	endpoint string
+	apiKey   string
+}
+
+func NewClient(endpoint string, apiKey string) *Client {
+	return &Client{
+		cli: &http.Client{
+			Timeout: 5 * time.Second,
+		},
+		endpoint: endpoint,
+		apiKey:   apiKey,
+	}
+}
 
 type NervanaItem struct {
 	Text        string `json:"text"`
@@ -16,7 +33,7 @@ type NervanaItem struct {
 	Description string `json:"description"`
 }
 
-func (p *Photocopy) newNervanaRequest(ctx context.Context, text string) (*http.Request, error) {
+func (c *Client) newRequest(ctx context.Context, text string) (*http.Request, error) {
 	payload := map[string]string{
 		"text":     text,
 		"language": "en",
@@ -27,20 +44,20 @@ func (p *Photocopy) newNervanaRequest(ctx context.Context, text string) (*http.R
 		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", p.nervanaEndpoint, bytes.NewReader(b))
+	req, err := http.NewRequestWithContext(ctx, "GET", c.endpoint, bytes.NewReader(b))
 
-	req.Header.Set("Authorization", "Bearer "+p.nervanaApiKey)
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
 	return req, err
 }
 
-func (p *Photocopy) makeNervanaRequest(ctx context.Context, text string) ([]NervanaItem, error) {
-	req, err := p.newNervanaRequest(ctx, text)
+func (c *Client) MakeRequest(ctx context.Context, text string) ([]NervanaItem, error) {
+	req, err := c.newRequest(ctx, text)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := p.nervanaClient.Do(req)
+	resp, err := c.cli.Do(req)
 	if err != nil {
 		return nil, err
 	}
