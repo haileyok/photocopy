@@ -44,7 +44,7 @@ func (c *Client) newRequest(ctx context.Context, text string) (*http.Request, er
 		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", c.endpoint, bytes.NewReader(b))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.endpoint, bytes.NewReader(b))
 
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
